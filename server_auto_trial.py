@@ -41,6 +41,9 @@ zeroconf = Zeroconf()
 zeroconf.register_service(info)
 
 print(f"Flask server advertised as http://flaskserver.local:5000")
+@app.route("/")
+def home():
+    return "Hello, this is the home page!"
 # -----------------------------
 # Raw ECG data buffer
 # -----------------------------
@@ -195,3 +198,4 @@ def glucose_history():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
