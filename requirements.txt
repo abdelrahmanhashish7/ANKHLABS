@@ -4,6 +4,8 @@ neurokit2
 numpy
 scipy
 pandas
+zeroconf
 matplotlib
 flask-cors
 requests
+
