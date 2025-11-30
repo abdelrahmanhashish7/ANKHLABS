@@ -7,6 +7,7 @@ import subprocess
 import signal
 import os
 import threading
+import neurokit2 as nk
 
 app = Flask(__name__)
 current_wifi = {"ssid": None, "password": None}
@@ -175,7 +176,7 @@ def start_processing():
         return jsonify({"status": "error", "message": "no ECG data available"}), 400
 
     # You can decide how many samples to pass. Here we pass all collected numbers.
-    result = NeuroKIt.process_data(latest_ecg_numbers, fs=50, window_sec=30)
+    result = nk.ecg_process(latest_ecg_numbers, sampling_rate=50)
 
     if result.get("status") != "ok":
         return jsonify({"status": "error", "message": result.get("message")}), 500
@@ -344,3 +345,4 @@ def glucose_history():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
