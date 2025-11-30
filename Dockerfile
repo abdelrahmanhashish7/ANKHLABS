@@ -14,4 +14,4 @@ COPY --from=builder /app/.venv .venv/
 COPY . .
 ENV FLASK_APP=Server.py
 ENV FLASK_ENV=production
-CMD ["/app/.venv/bin/flask", "run", "--host=0.0.0.0", "--port=8080"]
+CMD ["/app/.venv/bin/python", "Server.py" , "run", "--host=0.0.0.0", "--port=8080"]
