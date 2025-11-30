@@ -176,7 +176,7 @@ def start_processing():
         return jsonify({"status": "error", "message": "no ECG data available"}), 400
 
     # You can decide how many samples to pass. Here we pass all collected numbers.
-    result = nk.ecg_process(latest_ecg_numbers, sampling_rate=50)
+    result = nk.ecg_process(latest_ecg_numbers, sampling_rate=20)
 
     if result.get("status") != "ok":
         return jsonify({"status": "error", "message": result.get("message")}), 500
@@ -345,4 +345,5 @@ def glucose_history():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
