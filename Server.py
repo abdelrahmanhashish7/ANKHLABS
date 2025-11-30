@@ -170,27 +170,18 @@ def receive_esp_wifi():
 # START PROCESSING SCRIPT
 @app.route('/start_processing', methods=['POST'])
 def start_processing():
-    global latest_ecg_numbers, latest_plot, latest_rr
+    global process
+    if process is None:
+        script_path = os.path.join(os.path.dirname(__file__), "NeuroKit.py")
+        process = subprocess.Popen(
+            ["python3", script_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        return jsonify({"status": "processing started"})
+    else:
+        return jsonify({"status": "already running"})
 
-    if not latest_ecg_numbers:
-        return jsonify({"status": "error", "message": "no ECG data available"}), 400
-
-    # You can decide how many samples to pass. Here we pass all collected numbers.
-    result = nk.ecg_process(latest_ecg_numbers, sampling_rate=20)
-
-    if result.get("status") != "ok":
-        return jsonify({"status": "error", "message": result.get("message")}), 500
-
-    latest_rr = result.get("resp_rate")
-    latest_plot = result.get("plot")   # base64 PNG
-    # optionally save edr / rr series into history
-    # resp_rate_history.append(latest_rr)
-
-    return jsonify({
-        "status": "processing done",
-        "resp_rate": latest_rr,
-        "plot_sent": bool(latest_plot)
-    })
 # -----------------------------
 # Raw ECG data buffer
 # -----------------------------
@@ -345,5 +336,6 @@ def glucose_history():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
 
 
