@@ -7,7 +7,7 @@ import signal
 import os
 import threading
 import neurokit2 as nk
-from neurokit import run_processing
+from Neurokit import run_processing
 
 app = Flask(__name__)
 current_wifi = {"ssid": None, "password": None}
