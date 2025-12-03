@@ -1,9 +1,6 @@
 from flask import Flask, request, jsonify, send_file
 import io
 import base64
-import socket
-import subprocess
-import signal
 import os
 import threading
 import neurokit2 as nk
@@ -183,6 +180,7 @@ def glucose_history():
     return jsonify({
         "glucose_history": glucose_buffer
     })
+
 
 
 
