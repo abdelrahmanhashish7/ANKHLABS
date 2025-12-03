@@ -1,14 +1,13 @@
 from flask import Flask, request, jsonify, send_file
 import io
 import base64
-from zeroconf import ServiceInfo, Zeroconf
 import socket
 import subprocess
 import signal
 import os
 import threading
 import neurokit2 as nk
-from NeuroKit import run_processing
+from NeuroKIt import run_processing
 
 app = Flask(__name__)
 current_wifi = {"ssid": None, "password": None}
@@ -19,40 +18,13 @@ latest_plot = None       # Base64 string of ECG plot
 latest_rr = None         # Latest respiration rate
 latest_ecg_numbers = []  # Latest ECG numbers sent from NK
 resp_rate_history =[]
-glucose_buffer = [] # list of {"glucose": value, "timestamp": X}
+glucose_buffer = [] 
+process_thread = None
+# list of {"glucose": value, "timestamp": X}
 latest_glucose = {
     "value": None,
     "timestamp": None  # when the value was received
-}     # most recent glucose reading
-FIRST_TIME_FILE = r"C:\Users\nadim\Desktop\FinalGlucoECG\src\FinalGlucoECG.cpp\first_time.txt"
-SKETCH_FOLDER = r"C:\Users\nadim\Desktop\FinalGlucoECG\src\FinalGlucoECG.cpp"
-INO_FILE = os.path.join(SKETCH_FOLDER, "FinalGlucoECG.cpp")
-#TEST_MODE: True
-def get_local_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-    finally:
-        s.close()
-    return ip
-
-local_ip = get_local_ip()
-desc = {'path': '/'}
-info = ServiceInfo(
-    "_http._tcp.local.",
-    "flaskserver._http._tcp.local.",
-    addresses=[socket.inet_aton(local_ip)],
-    port=5000,
-    properties=desc,
-    server="flaskserver.local."
-)
-
-zeroconf = Zeroconf()
-zeroconf.register_service(info)
-
-print(f"Flask server advertised as http://flaskserver.local:5000")
-
+} 
 # START PROCESSING SCRIPT
 @app.route('/start_processing', methods=['POST'])
 def start_processing():
@@ -211,12 +183,6 @@ def glucose_history():
     return jsonify({
         "glucose_history": glucose_buffer
     })
-
-
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True, threaded=True)
 
 
 
