@@ -1,11 +1,10 @@
 flask
+flask-cors
 gunicorn
+requests
 neurokit2
 numpy
 scipy
 pandas
-zeroconf
 matplotlib
-flask-cors
-requests
-
+zeroconf
