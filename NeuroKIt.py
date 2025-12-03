@@ -195,7 +195,9 @@ resp_rate_history = []
 minute_start = time.time()
 rsp_intensity = pd.Series([0])
 
-ani = FuncAnimation(fig, update, interval=step_sec*1000)  # every 1 second
-plt.tight_layout()
-plt.show()
+def run_processing():
+    while True:
+        update(None)
+        time.sleep(1)
+
 
