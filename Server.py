@@ -7,7 +7,7 @@ import signal
 import os
 import threading
 import neurokit2 as nk
-from NeuroKIt import run_processing
+from neurokit import run_processing
 
 app = Flask(__name__)
 current_wifi = {"ssid": None, "password": None}
@@ -183,6 +183,7 @@ def glucose_history():
     return jsonify({
         "glucose_history": glucose_buffer
     })
+
 
 
 
