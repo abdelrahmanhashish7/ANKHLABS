@@ -8,6 +8,7 @@ import signal
 import os
 import threading
 import neurokit2 as nk
+from NeuroKit import run_processing
 
 app = Flask(__name__)
 current_wifi = {"ssid": None, "password": None}
@@ -52,135 +53,15 @@ zeroconf.register_service(info)
 
 print(f"Flask server advertised as http://flaskserver.local:5000")
 
-
-@app.route('/wifi_config', methods=['POST'])
-def wifi_config():
-    global current_wifi
-    data = request.get_json()
-
-    if not data:
-        return jsonify({"status": "error", "message": "no JSON received"}), 400
-
-    ssid = data.get("ssid")
-    password = data.get("password")
-
-    if not ssid or not password:
-        return jsonify({"status": "error", "message": "ssid or password missing"}), 400
-
-    current_wifi["ssid"] = ssid
-    current_wifi["password"] = password
-
-    print(f"Stored Wi-Fi credentials → SSID={ssid}, PASSWORD={password}")
-
-    return jsonify({"status": "ok", "message": "wifi stored"}), 200
-@app.route('/upload_esp', methods=['POST'])
-def upload_esp():
-    try:
-        global current_wifi
-
-        data = request.get_json()
-        com_port = data.get("port", "COM4")
-
-        first_time = not os.path.exists(FIRST_TIME_FILE)
-
-        # Use stored Wi-Fi credentials on first time
-        if first_time:
-            ssid = current_wifi.get("ssid")
-            password = current_wifi.get("password")
-
-            if not ssid or not password:
-                return jsonify({
-                    "status": "error",
-                    "message": "Wi-Fi not set. Call /wifi_config before /upload_esp."
-                }), 400
-
-            print(f"Injecting Wi-Fi into PlatformIO sketch: SSID={ssid}")
-
-            # Insert into .cpp
-            with open(INO_FILE, "r") as f:
-                code = f.read()
-
-            code = code.replace("WIFI_SSID_PLACEHOLDER", ssid)
-            code = code.replace("WIFI_PASSWORD_PLACEHOLDER", password)
-
-            with open(INO_FILE, "w") as f:
-                f.write(code)
-
-            print("Wi-Fi placeholders replaced for first-time setup.")
-
-        # Run Arduino CLI in background
-        def pio_upload():
-         cmd = ["platformio", "run", "--target", "upload", f"--upload-port={com_port}"]
-         proc = subprocess.Popen(cmd, cwd=SKETCH_FOLDER, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-         out, err = proc.communicate()
-         if proc.returncode == 0:
-            print("Upload successful:\n", out)
-         else:
-            print("Upload failed:\n", err)
-
-        threading.Thread(target=pio_upload, daemon=True).start()
-
-        return jsonify({"status": "upload_started", "message": "ESP upload started in background"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-# -----------------------------
-# Debug route: show current Wi-Fi
-# -----------------------------
-@app.route('/debug_wifi', methods=['GET'])
-def debug_wifi():
-    first_time_exists = os.path.exists(FIRST_TIME_FILE)
-    ssid = None
-    password = None
-
-    # If first-time, read placeholders from the .ino file
-    if first_time_exists:
-        # After first-time upload, credentials are now in ESP runtime via AP mode
-        return jsonify({"status": "first-time upload done. Use ESP AP to check Wi-Fi."})
-    else:
-        # Extract current placeholders from the .ino file (optional)
-        with open(INO_FILE, "r") as f:
-            code = f.read()
-        # Try to read the replaced SSID and password (naive approach)
-        import re
-        ssid_match = re.search(r'WIFI_SSID_PLACEHOLDER', code)
-        pass_match = re.search(r'WIFI_PASSWORD_PLACEHOLDER', code)
-        ssid = ssid_match.group(0) if ssid_match else "unknown"
-        password = pass_match.group(0) if pass_match else "unknown"
-
-    return jsonify({
-        "first_time_done": first_time_exists,
-        "ssid": ssid,
-        "password": password
-    })
-
-@app.route('/esp_wifi', methods=['POST'])
-def receive_esp_wifi():
-    global current_esp_wifi
-    data = request.get_json()
-    if not data or "ssid" not in data or "password" not in data:
-        return jsonify({"status": "error", "message": "ssid or password missing"}), 400
-    
-    current_esp_wifi["ssid"] = data["ssid"]
-    current_esp_wifi["password"] = data["password"]
-
-    print(f"ESP reported Wi-Fi: {current_esp_wifi}")
-    return jsonify({"status": "ok"}), 200
-
 # START PROCESSING SCRIPT
 @app.route('/start_processing', methods=['POST'])
 def start_processing():
-    global process
-    if process is None:
-        script_path = os.path.join(os.path.dirname(__file__), "NeuroKit.py")
-        process = subprocess.Popen(
-            ["python3", script_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
+    global process_thread
+    if not process_thread or not process_thread.is_alive():
+        process_thread = threading.Thread(target=run_processing, daemon=True)
+        process_thread.start()
         return jsonify({"status": "processing started"})
-    else:
-        return jsonify({"status": "already running"})
+    return jsonify({"status": "already running"})
 
 # -----------------------------
 # Raw ECG data buffer
@@ -336,6 +217,7 @@ def glucose_history():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True, threaded=True)
+
 
 
 
