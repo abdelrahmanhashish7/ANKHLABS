@@ -4,7 +4,6 @@ import base64
 import os
 import threading
 import neurokit2 as nk
-from Neurokit import run_processing
 
 app = Flask(__name__)
 current_wifi = {"ssid": None, "password": None}
@@ -22,16 +21,6 @@ latest_glucose = {
     "value": None,
     "timestamp": None  # when the value was received
 } 
-# START PROCESSING SCRIPT
-@app.route('/start_processing', methods=['POST'])
-def start_processing():
-    global process_thread
-    if not process_thread or not process_thread.is_alive():
-        process_thread = threading.Thread(target=run_processing, daemon=True)
-        process_thread.start()
-        return jsonify({"status": "processing started"})
-    return jsonify({"status": "already running"})
-
 # -----------------------------
 # Raw ECG data buffer
 # -----------------------------
@@ -180,6 +169,7 @@ def glucose_history():
     return jsonify({
         "glucose_history": glucose_buffer
     })
+
 
 
 
