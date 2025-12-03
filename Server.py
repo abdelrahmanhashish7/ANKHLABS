@@ -1,4 +1,4 @@
-﻿from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file
 import io
 import base64
 from zeroconf import ServiceInfo, Zeroconf
@@ -217,6 +217,7 @@ def glucose_history():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True, threaded=True)
+
 
 
 
