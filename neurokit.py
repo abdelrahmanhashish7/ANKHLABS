@@ -9,7 +9,7 @@ import io, base64
 
 # ==== YOUR PC IP HERE ====
 PC_IP = "biosensors-eqgnhhgmb5b9fbex.francecentral-01.azurewebsites.net"
-FLASK_ECG = f"https://{PC_IP}:/ecg"
+FLASK_ECG = f"https://{PC_IP}/ecg"
 FLASK_PLOT = f"https://{PC_IP}/ecg_plot"
 FLASK_NUMBERS = f"https://{PC_IP}/ecgnumbers"
 FLASK_RR = f"https://{PC_IP}/resp_rate"
@@ -199,5 +199,6 @@ def run_processing():
     while True:
         update(None)
         time.sleep(1)
+
 
 
