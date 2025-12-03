@@ -1,182 +1,126 @@
 from flask import Flask, request, jsonify, send_file
 import io
 import base64
-import os
 import threading
-import neurokit2 as nk
+import neurokit  # <-- our processing module
 
 app = Flask(__name__)
-current_wifi = {"ssid": None, "password": None}
-process = None
-# Buffers and latest values
-ecg_buffer = []          # [{"ecg": value, "timestamp": X}, ...]
-latest_plot = None       # Base64 string of ECG plot
-latest_rr = None         # Latest respiration rate
-latest_ecg_numbers = []  # Latest ECG numbers sent from NK
-resp_rate_history =[]
-glucose_buffer = [] 
-process_thread = None
-# list of {"glucose": value, "timestamp": X}
-latest_glucose = {
-    "value": None,
-    "timestamp": None  # when the value was received
-} 
+
 # -----------------------------
-# Raw ECG data buffer
+# Buffers & shared state
+# -----------------------------
+ecg_buffer = []            # [{"ecg": value, "timestamp": X}, ...]
+glucose_buffer = []        # glucose history
+latest_glucose = {"value": None, "timestamp": None}
+
+latest_plot = None         # deprecated (now inside neurokit)
+latest_rr = None           # deprecated (inside neurokit)
+latest_ecg_numbers = []    # deprecated
+
+# -----------------------------
+# Receive sensor data
 # -----------------------------
 @app.route('/data', methods=['POST'])
 def receive_data():
-    global latest_ecg_numbers
     data = request.get_json()
     if not data or "ecg" not in data:
         return jsonify({"status": "error", "message": "bad JSON"}), 400
-
 
     ecg = data.get("ecg")
     glucose = data.get("glucose")
     timestamp = data.get("timestamp")
 
-    # Always store ECG
+    # store ECG
     ecg_buffer.append({"ecg": ecg, "timestamp": timestamp})
-    latest_ecg_numbers.append(ecg)
 
-    # Handle glucose ONLY when it's real (not null)
+    # optional glucose
     if glucose is not None:
-       latest_glucose["value"] = glucose
-       latest_glucose["timestamp"] = timestamp
-       glucose_buffer.append({"glucose": glucose, "timestamp": timestamp})
-       print(f"New 1-minute glucose: {glucose}")
+        latest_glucose["value"] = glucose
+        latest_glucose["timestamp"] = timestamp
+        glucose_buffer.append({"glucose": glucose, "timestamp": timestamp})
 
-    print("Received:", data)
     return jsonify({"status": "ok"}), 200
 
+# -----------------------------
+# Get ECG buffer (raw)
+# -----------------------------
 @app.route('/ecg', methods=['GET'])
 def get_ecg():
-    # Return only last ~1 second (250 samples)
-    return jsonify(ecg_buffer[-500:])
+    return jsonify(ecg_buffer[-500:])  # last 500 samples
 
+# -----------------------------
+# Clear buffers
+# -----------------------------
 @app.route('/clear', methods=['POST'])
 def clear_buffer():
     ecg_buffer.clear()
-    latest_ecg_numbers.clear()
+    glucose_buffer.clear()
     return jsonify({"status": "cleared"})
 
 # -----------------------------
-# ECG Plot
-# -----------------------------
-@app.route('/ecg_plot', methods=['GET'])
-def show_ecg_plot():
-    global latest_plot
-    if latest_plot is None:
-        return "No plot available yet", 404
-    img_bytes = base64.b64decode(latest_plot)
-    return send_file(io.BytesIO(img_bytes), mimetype='image/png')
-
-@app.route('/ecg_plot', methods=['POST'])
-def receive_ecg_plot():
-    global latest_plot
-    data = request.get_json()
-    latest_plot = data.get("plot")
-    return jsonify({"status": "ok"}), 200
-
-# -----------------------------
-# Respiration Rate
+# Respiration Rate (processed)
 # -----------------------------
 @app.route('/resp_rate', methods=['GET'])
 def show_resp_rate():
-    global latest_rr
-    if latest_rr is None:
-        return jsonify({"resp_rate": None}), 404
-    return jsonify({"resp_rate": latest_rr})
-
-@app.route('/resp_rate', methods=['POST'])
-def receive_resp_rate():
-    global latest_rr
-    data = request.get_json()
-    latest_rr = data.get("resp_rate")
-    return jsonify({"status": "ok"}), 200
+    return jsonify({"resp_rate": neurokit.latest_rr})
 
 # -----------------------------
-# ECG Numbers (raw values from NK or /data)
+# ECG Plot (processed)
+# -----------------------------
+@app.route('/ecg_plot', methods=['GET'])
+def show_ecg_plot():
+    if neurokit.latest_plot is None:
+        return "No plot", 404
+    img_bytes = base64.b64decode(neurokit.latest_plot)
+    return send_file(io.BytesIO(img_bytes), mimetype='image/png')
+
+# -----------------------------
+# Processed ECG numbers
 # -----------------------------
 @app.route('/ecgnumbers', methods=['GET'])
 def show_ecg_numbers():
-    global latest_ecg_numbers
-    if not latest_ecg_numbers:
-        return jsonify({"numbers": []}), 404
-    return jsonify({"numbers": latest_ecg_numbers})
-    #return jsonify({"numbers": latest_ecg_numbers[-250:]})
+    return jsonify({"numbers": neurokit.latest_ecg_numbers})
 
-@app.route('/ecgnumbers', methods=['POST'])
-def receive_ecg_numbers():
-    global latest_ecg_numbers
-    data = request.get_json()
-    latest_ecg_numbers = data.get("numbers", [])
-    return jsonify({"status": "ok"}), 200
-@app.route('/resp_history', methods=['GET'])
-def show_resp_history():
-    global resp_rate_history
-    if not resp_rate_history:
-        return jsonify({"resp_history": []}), 404
-    return jsonify({"resp_history": resp_rate_history})
-
-@app.route('/resp_history', methods=['POST'])
-def receive_resp_history():
-    global resp_rate_history
-    data = request.get_json()
-    resp_rate_history = data.get("resp_history", [])
-    return jsonify({"status": "ok"}), 200
 # -----------------------------
-# Test route (optional)
+# Glucose
 # -----------------------------
-@app.route("/test")
-def home():
-    return "hello world"
-
 @app.route('/glucose', methods=['GET'])
-def show_glucose_numbers():
-    global latest_glucose
+def show_glucose():
     if latest_glucose["value"] is None:
         return jsonify({"glucose": None}), 404
 
-    # Return the value and timestamp
     return jsonify({
         "glucose": latest_glucose["value"],
         "timestamp": latest_glucose["timestamp"]
     })
 
-@app.route('/glucose', methods=['POST'])
-def receive_glucose_numbers():
-    global latest_glucose, glucose_buffer
-    data = request.get_json()
-    glucose = data.get("glucose")
-    timestamp = data.get("timestamp")  # optional, can come from ESP32
-
-    # Only update if glucose is real (not null)
-    if glucose is not None:
-        latest_glucose["value"] = glucose
-        latest_glucose["timestamp"] = timestamp
-        glucose_buffer.append({"glucose": glucose, "timestamp": timestamp})
-        print(f"Updated glucose via POST: {glucose}")
-    return jsonify({"status": "ok"}), 200
-
 @app.route('/glucose_history', methods=['GET'])
-def glucose_history():
-    if len(glucose_buffer) == 0:
-        return jsonify({"glucose_history": []}), 404
+def show_glucose_history():
+    return jsonify({"glucose_history": glucose_buffer})
 
-    # Return all 1-minute glucose readings
-    return jsonify({
-        "glucose_history": glucose_buffer
-    })
+# -----------------------------
+# Test route
+# -----------------------------
+@app.route('/test')
+def home():
+    return "Server running"
 
+# -----------------------------
+# Start NeuroKit processing thread
+# -----------------------------
+def start_processing_thread():
+    thread = threading.Thread(
+        target=neurokit.neurokit_worker,
+        args=(ecg_buffer,),
+        daemon=True
+    )
+    thread.start()
+    print("[Server] NeuroKit worker started.")
 
+start_processing_thread()
 
-
-
-
-
-
-
-
-
+# -----------------------------
+# Run Flask server
+# -----------------------------
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
