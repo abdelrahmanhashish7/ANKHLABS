@@ -334,7 +334,10 @@ def glucose_history():
     if len(glucose_buffer) == 0:
         return jsonify({"glucose_history": []}), 404
 
-    return jsonify({"glucose_history": glucose_buffer})
+    # extract only glucose values
+    values = [entry["glucose"] for entry in glucose_buffer]
+
+    return jsonify({"glucose_history": values})
 
 
 # ------------------------------------------------------
@@ -351,3 +354,4 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
+
