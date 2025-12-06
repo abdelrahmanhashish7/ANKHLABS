@@ -23,6 +23,8 @@ resp_rate_history = []       # Respiration history
 glucose_buffer = []          # [{"glucose": value, "timestamp": X}]
 process_thread = None
 last_ecg_time = time.time()
+rr_temp_buffer = []
+last_rr_minute = time.time()
 
 latest_glucose = {
     "value": None,
@@ -39,8 +41,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 def run_processing():
-    global latest_rr, latest_plot, latest_ecg_numbers, resp_rate_history
-
+    global resp_rate_history, rr_temp_buffer, last_rr_minute
     fs = 50               # ECG sampling rate
     window_sec = 30
     window_samples = fs * window_sec
@@ -72,18 +73,48 @@ def run_processing():
         # -------------------------
         # Extract Respiration (EDR)
         # -------------------------
-        try:
-            edr = nk.ecg_rsp(window, sampling_rate=fs)
-            rr_series = nk.rsp_rate(edr, sampling_rate=fs)
+# -------------------------
+# Extract Respiration (EDR)
+# -------------------------
+try:
+    edr = nk.ecg_rsp(window, sampling_rate=fs)
+    rr_series = nk.rsp_rate(edr, sampling_rate=fs)
 
-            rr_vals = [x for x in rr_series if x > 0]
-            latest_rr = float(np.mean(rr_vals)) if rr_vals else 0.0
+    rr_vals = [x for x in rr_series if x > 0]
+    latest_rr = float(np.mean(rr_vals)) if rr_vals else 0.0
 
-            resp_rate_history.append(latest_rr)
+    # ---------------------------------------------------------
+    # INSERTED CODE STARTS HERE (1-minute respiration averaging)
+    # ---------------------------------------------------------
+    global rr_temp_buffer, last_rr_minute, resp_rate_history
 
-        except Exception as e:
-            print("[NK] Respiration Error:", e)
-            latest_rr = None
+    # add the per-second RR to temporary buffer
+    if latest_rr is not None:
+        rr_temp_buffer.append(latest_rr)
+
+    # every 60 seconds → compute 1-minute average
+    if time.time() - last_rr_minute >= 60:
+
+        if len(rr_temp_buffer) > 0:
+            minute_avg = sum(rr_temp_buffer) / len(rr_temp_buffer)
+            resp_rate_history.append(round(minute_avg, 2))
+            print("[RR] 1-minute average:", round(minute_avg, 2))
+
+        # reset for next minute
+        rr_temp_buffer.clear()
+        last_rr_minute = time.time()
+
+        # optional cleanup (store only last 1440 minutes = 24 hours)
+        if len(resp_rate_history) > 1440:
+            resp_rate_history = resp_rate_history[-1440:]
+    # ---------------------------------------------------------
+    # INSERTED CODE ENDS HERE
+    # ---------------------------------------------------------
+
+except Exception as e:
+    print("[NK] Respiration Error:", e)
+    latest_rr = None
+
 
         # -------------------------
         # Last ECG Numbers
@@ -211,10 +242,22 @@ def receive_ecg_plot():
 # ------------------------------------------------------
 @app.route('/resp_rate', methods=['GET'])
 def show_resp_rate():
-    global latest_rr
-    if latest_rr is None:
+    global resp_rate_history
+
+    # need at least one value
+    if len(resp_rate_history) == 0:
         return jsonify({"resp_rate": None}), 404
-    return jsonify({"resp_rate": latest_rr})
+
+    # get last 60 seconds (or fewer if not available yet)
+    last_minute = resp_rate_history[-60:]
+
+    avg_rr = sum(last_minute) / len(last_minute)
+
+    return jsonify({
+        "resp_rate": round(avg_rr, 2),
+        "samples_used": len(last_minute)
+    })
+)
 
 
 @app.route('/resp_rate', methods=['POST'])
@@ -320,3 +363,4 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
+
