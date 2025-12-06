@@ -108,7 +108,18 @@ def run_processing():
         except Exception as e:
             print("[NK] Plot Error:", e)
             latest_plot = None
+def ecg_auto_clear_loop():
+    global latest_ecg_numbers, last_ecg_time
 
+    while True:
+        time.sleep(30)  # check every 30 seconds
+        now = time.time()
+
+        # 5 minutes = 300 seconds
+        if now - last_ecg_time > 300:
+            if len(latest_ecg_numbers) > 0:
+                print("[AUTO CLEAR] No ECG data for 5 minutes → clearing latest_ecg_numbers")
+                latest_ecg_numbers.clear()
 
 # ------------------------------------------------------
 # START PROCESSING SCRIPT
@@ -153,19 +164,6 @@ def receive_data():
 
     print("Received:", data)
     return jsonify({"status": "ok"}), 200
-def ecg_auto_clear_loop():
-    global latest_ecg_numbers, last_ecg_time
-
-    while True:
-        time.sleep(30)  # check every 30 seconds
-        now = time.time()
-
-        # 5 minutes = 300 seconds
-        if now - last_ecg_time > 300:
-            if len(latest_ecg_numbers) > 0:
-                print("[AUTO CLEAR] No ECG data for 5 minutes → clearing latest_ecg_numbers")
-                latest_ecg_numbers.clear()
-
 
 
 @app.route('/ecg', methods=['GET'])
