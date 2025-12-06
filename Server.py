@@ -22,6 +22,7 @@ latest_ecg_numbers = []      # Latest ECG array (for Flutter)
 resp_rate_history = []       # Respiration history
 glucose_buffer = []          # [{"glucose": value, "timestamp": X}]
 process_thread = None
+last_ecg_time = time.time()
 
 latest_glucose = {
     "value": None,
@@ -140,6 +141,8 @@ def receive_data():
     # store ECG
     ecg_buffer.append({"ecg": ecg, "timestamp": timestamp})
     latest_ecg_numbers.append(ecg)
+    global last_ecg_time
+    last_ecg_time = time.time()
 
     # store glucose
     if glucose is not None:
@@ -150,6 +153,19 @@ def receive_data():
 
     print("Received:", data)
     return jsonify({"status": "ok"}), 200
+def ecg_auto_clear_loop():
+    global latest_ecg_numbers, last_ecg_time
+
+    while True:
+        time.sleep(30)  # check every 30 seconds
+        now = time.time()
+
+        # 5 minutes = 300 seconds
+        if now - last_ecg_time > 300:
+            if len(latest_ecg_numbers) > 0:
+                print("[AUTO CLEAR] No ECG data for 5 minutes → clearing latest_ecg_numbers")
+                latest_ecg_numbers.clear()
+
 
 
 @app.route('/ecg', methods=['GET'])
@@ -220,6 +236,8 @@ def receive_ecg_numbers():
     data = request.get_json()
     latest_ecg_numbers = data.get("numbers", [])
     return jsonify({"status": "ok"})
+    global last_ecg_time
+    last_ecg_time = time.time()
 
 
 # ------------------------------------------------------
@@ -294,4 +312,5 @@ def home():
 # START SERVER
 # ------------------------------------------------------
 if __name__ == '__main__':
+    threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
