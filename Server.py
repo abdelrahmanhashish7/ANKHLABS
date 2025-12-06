@@ -165,6 +165,14 @@ def receive_data():
     print("Received:", data)
     return jsonify({"status": "ok"}), 200
 
+@app.route('/ecgclear', methods=['POST'])
+def clear_ecg_numbers():
+    global latest_ecg_numbers, ecg_buffer
+
+    latest_ecg_numbers.clear()   # clear numbers sent to Flutter
+    ecg_buffer.clear()           # optional: clear raw ECG buffer
+
+    return jsonify({"status": "ecg numbers cleared"})
 
 @app.route('/ecg', methods=['GET'])
 def get_ecg():
@@ -312,3 +320,4 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
+
