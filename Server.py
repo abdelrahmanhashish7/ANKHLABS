@@ -167,31 +167,29 @@ def start_processing():
 # ------------------------------------------------------
 @app.route('/data', methods=['POST'])
 def receive_data():
-    global latest_ecg_numbers
+    global latest_ecg_numbers, last_ecg_time
+
     data = request.get_json()
 
-    if not data or "ecg" not in data:
+    if not data:
         return jsonify({"status": "error", "message": "bad JSON"}), 400
 
     ecg = data.get("ecg")
-    glucose = data.get("glucose")
-    timestamp = data.get("timestamp")
+    timestamp = data.get("timestamp", time.time())
 
-    # store ECG
-    ecg_buffer.append({"ecg": ecg, "timestamp": timestamp})
-    latest_ecg_numbers.append(ecg)
-    global last_ecg_time
+    # Handle 6-value batch
+    if isinstance(ecg, list):
+        for value in ecg:
+            ecg_buffer.append({"ecg": value, "timestamp": timestamp})
+            latest_ecg_numbers.append(value)
+    else:
+        # Handle single value
+        ecg_buffer.append({"ecg": ecg, "timestamp": timestamp})
+        latest_ecg_numbers.append(ecg)
+
     last_ecg_time = time.time()
 
-    # store glucose
-    if glucose is not None:
-        latest_glucose["value"] = glucose
-        latest_glucose["timestamp"] = timestamp
-        glucose_buffer.append({"glucose": glucose, "timestamp": timestamp})
-        print(f"New 1-minute glucose: {glucose}")
-
-    print("Received:", data)
-    return jsonify({"status": "ok"}), 200
+    return jsonify({"status": "ok"})
 
 @app.route('/ecgclear', methods=['POST'])
 def clear_ecg_numbers():
@@ -363,3 +361,4 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
+
