@@ -167,7 +167,7 @@ def start_processing():
 # ------------------------------------------------------
 @app.route('/data', methods=['POST'])
 def receive_data():
-    global latest_ecg_numbers, last_ecg_time
+    global latest_ecg_numbers, last_ecg_time, latest_glucose, glucose_buffer
 
     data = request.get_json()
 
@@ -175,17 +175,28 @@ def receive_data():
         return jsonify({"status": "error", "message": "bad JSON"}), 400
 
     ecg = data.get("ecg")
+    glucose = data.get("glucose")
     timestamp = data.get("timestamp", time.time())
 
-    # Handle 6-value batch
+    # ===================== PROCESS GLUCOSE FIRST ======================
+    if glucose is not None and glucose != 0:
+        latest_glucose["value"] = glucose
+        latest_glucose["timestamp"] = timestamp
+        glucose_buffer.append({"glucose": glucose, "timestamp": timestamp})
+        print(f"[GLUCOSE] Updated glucose: {glucose}")
+
+    # ===================== PROCESS ECG (batch or single) ==============
     if isinstance(ecg, list):
-        for value in ecg:
-            ecg_buffer.append({"ecg": value, "timestamp": timestamp})
-            latest_ecg_numbers.append(value)
+        # batch of ECG values
+        for v in ecg:
+            ecg_buffer.append({"ecg": v, "timestamp": timestamp})
+            latest_ecg_numbers.append(v)
+
     else:
-        # Handle single value
-        ecg_buffer.append({"ecg": ecg, "timestamp": timestamp})
-        latest_ecg_numbers.append(ecg)
+        # single ECG value (or the glucose packet's ecg=0)
+        if isinstance(ecg, (int, float)):
+            ecg_buffer.append({"ecg": ecg, "timestamp": timestamp})
+            latest_ecg_numbers.append(ecg)
 
     last_ecg_time = time.time()
 
@@ -361,4 +372,5 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
+
 
