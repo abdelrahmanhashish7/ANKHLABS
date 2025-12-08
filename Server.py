@@ -74,29 +74,20 @@ def run_processing():
         window = np.array(raw_buffer[-window_samples:], dtype=float)
         window = pd.Series(window).interpolate().bfill().to_numpy()
 
-        # -------------------------
+               # -------------------------
         # Extract Respiration (EDR)
         # -------------------------
         try:
-            # Extract respiration waveform from ECG
             edr = nk.ecg_rsp(window, sampling_rate=fs)
-
-            # Detect breathing peaks
             rsp_peaks = nk.rsp_peaks(edr, sampling_rate=fs)
-
-            # Compute respiration rate (breaths per minute)
             breathing_rate = nk.signal_rate(rsp_peaks, sampling_rate=fs)
 
-            # Average rate inside this window
             latest_rr = float(np.mean(breathing_rate)) if len(breathing_rate) > 0 else None
 
-            # ---------------------------------------------------------
-            # 1-minute averaging logic
-            # ---------------------------------------------------------
+            # ======== 1-minute averaging block ========
             if latest_rr is not None:
                 rr_temp_buffer.append(latest_rr)
 
-            # Every 60 seconds → compute 1-minute average
             if time.time() - last_rr_minute >= 60:
 
                 if len(rr_temp_buffer) > 0:
@@ -104,11 +95,9 @@ def run_processing():
                     resp_rate_history.append(round(minute_avg, 2))
                     print("[RR] 1-minute average:", round(minute_avg, 2))
 
-                # Reset buffer & timestamp
                 rr_temp_buffer.clear()
                 last_rr_minute = time.time()
 
-                # Keep last 24 hours
                 if len(resp_rate_history) > 1440:
                     resp_rate_history = resp_rate_history[-1440:]
 
@@ -412,6 +401,5 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
-
 
 
