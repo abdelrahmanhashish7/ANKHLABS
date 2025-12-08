@@ -44,6 +44,8 @@ import matplotlib.pyplot as plt
 
 def run_processing():
     global processing_running
+    global latest_rr, latest_plot, latest_ecg_numbers
+    global resp_rate_history, rr_temp_buffer, last_rr_minute
 
     fs = 50
     window_sec = 30
@@ -410,5 +412,6 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
+
 
 
