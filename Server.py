@@ -25,6 +25,8 @@ process_thread = None
 last_ecg_time = time.time()
 rr_temp_buffer = []
 last_rr_minute = time.time()
+processing_running = True
+
 
 latest_glucose = {
     "value": None,
@@ -41,8 +43,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 def run_processing():
-    global resp_rate_history, rr_temp_buffer, last_rr_minute, latest_rr, latest_plot, latest_ecg_numbers
-    fs = 50               # ECG sampling rate
+    global latest_rr, latest_plot, latest_ecg_numbers, resp_rate_history, processing_running
+
+    fs = 50
     window_sec = 30
     window_samples = fs * window_sec
 
@@ -50,8 +53,11 @@ def run_processing():
 
     print("[NK] NeuroKit Processing Started")
 
-    while True:
+    while processing_running:
         time.sleep(1)
+
+        # (the rest of your processing code stays EXACTLY the same)
+
 
         # Append latest ECG samples
         if len(ecg_buffer) > 0:
@@ -160,6 +166,34 @@ def start_processing():
         process_thread.start()
         return jsonify({"status": "processing started"})
     return jsonify({"status": "already running"})
+
+# ------------------------------------------------------
+# STOP PROCESSING SCRIPT
+# ------------------------------------------------------
+
+@app.route('/stop_processing', methods=['POST'])
+def stop_processing():
+    global processing_running
+    processing_running = False
+    return jsonify({"status": "processing stopped"})
+# ------------------------------------------------------
+#  CLEAR DATA SCRIPT
+# ------------------------------------------------------
+@app.route('/clear_all', methods=['POST'])
+def clear_all():
+    global ecg_buffer, latest_ecg_numbers, resp_rate_history
+    global latest_plot, latest_rr, glucose_buffer, latest_glucose
+
+    ecg_buffer.clear()
+    latest_ecg_numbers.clear()
+    resp_rate_history.clear()
+    glucose_buffer.clear()
+
+    latest_plot = None
+    latest_rr = None
+    latest_glucose = {"value": None, "timestamp": None}
+
+    return jsonify({"status": "all data cleared"})
 
 
 # ------------------------------------------------------
@@ -372,5 +406,4 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
-
 
