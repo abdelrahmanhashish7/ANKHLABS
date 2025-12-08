@@ -25,7 +25,7 @@ process_thread = None
 last_ecg_time = time.time()
 rr_temp_buffer = []
 last_rr_minute = time.time()
-processing_running = True
+processing_running = False
 
 
 latest_glucose = {
@@ -43,21 +43,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 def run_processing():
-    global latest_rr, latest_plot, latest_ecg_numbers, resp_rate_history, processing_running
+    global processing_running
 
     fs = 50
     window_sec = 30
     window_samples = fs * window_sec
-
     raw_buffer = []
 
     print("[NK] NeuroKit Processing Started")
 
     while processing_running:
         time.sleep(1)
-
-        # (the rest of your processing code stays EXACTLY the same)
-
 
         # Append latest ECG samples
         if len(ecg_buffer) > 0:
@@ -160,12 +156,20 @@ def ecg_auto_clear_loop():
 # ------------------------------------------------------
 @app.route('/start_processing', methods=['POST'])
 def start_processing():
-    global process_thread
-    if not process_thread or not process_thread.is_alive():
-        process_thread = threading.Thread(target=run_processing, daemon=True)
-        process_thread.start()
-        return jsonify({"status": "processing started"})
-    return jsonify({"status": "already running"})
+    global process_thread, processing_running
+
+    # If already running → skip
+    if processing_running:
+        return jsonify({"status": "already running"})
+
+    # Set flag to True
+    processing_running = True
+
+    # Always create a fresh thread
+    process_thread = threading.Thread(target=run_processing, daemon=True)
+    process_thread.start()
+
+    return jsonify({"status": "processing started"})
 
 # ------------------------------------------------------
 # STOP PROCESSING SCRIPT
@@ -406,4 +410,5 @@ def home():
 if __name__ == '__main__':
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
+
 
