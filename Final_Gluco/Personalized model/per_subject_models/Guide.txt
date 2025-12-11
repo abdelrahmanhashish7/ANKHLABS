@@ -1,0 +1,8 @@
+subject1--> MENNA
+subject2--> NADIM
+subject3--> HASHISH
+subject4--> EIAD
+subject5--> JANA
+subject6--> DIABETIC SUBJECT
+subject7--> SALMA
+subject8--> PREDIABETIC SUBJECT
