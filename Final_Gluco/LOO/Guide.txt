@@ -1,0 +1,8 @@
+LOO (Leave one sample out)
+LOSO.py
+GRAPHS
+  1.scatter_true_vs_pred
+  2.mae_distribution
+  3.error_per_sample
+LOO_RF_results
+  which contains the predicted glucose and the actual of all samples in "ALLNEW.csv"
