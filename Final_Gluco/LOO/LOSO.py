@@ -3,8 +3,11 @@ import numpy as np
 import csv
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-from sklearn.model_selection import RandomizedSearchCV
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.model_selection import RandomizedSearchCV, KFold
+from sklearn.metrics import mean_absolute_error
+import warnings
+warnings.filterwarnings("ignore")
 
 df = pd.read_csv("ALLNEW.csv")
 features = ["ratio", "ac", "dc", "PI_feature", "slope"]
@@ -16,17 +19,17 @@ n_samples = len(df)
 
 print("\nRunning Hyperparameter Tuning...")
 param_grid = {
-    'n_estimators': [150, 200, 250, 300, 350, 400],
-    'max_depth': [None, 5, 7, 10, 12, 15],
-    'min_samples_split': [2, 3, 4, 5],
-    'min_samples_leaf': [1, 2, 3],
-    'max_features': ["auto", "sqrt", 0.6, 0.8]
+    'n_estimators': [150, 200, 250, 300],
+    'max_depth': [None, 5, 7, 10],
+    'min_samples_split': [2, 3, 4],
+    'min_samples_leaf': [1, 2],
+    'max_features': ["sqrt", "log2", 0.6, None]
 }
 base_model = RandomForestRegressor(random_state=42)
 tuner = RandomizedSearchCV(
     estimator=base_model,
     param_distributions=param_grid,
-    n_iter=25,
+    n_iter=15,
     cv=3,
     scoring='neg_mean_absolute_error',
     random_state=42,
@@ -34,84 +37,98 @@ tuner = RandomizedSearchCV(
 )
 tuner.fit(X, y)
 best_params = tuner.best_params_
-print("Best RF Parameters:", best_params)
+print("\nBest RF Parameters:", best_params)
 
-# Use best RF for LOO
-best_rf = RandomForestRegressor(**best_params, random_state=42)
-
-output_file = "LOO_RF_results.csv"
+teacher_model = RandomForestRegressor(**best_params, random_state=42)
+output_file = "LOO_TEACHER_STUDENT_results.csv"
 with open(output_file, mode="w", newline="") as f:
     writer = csv.writer(f)
-    writer.writerow(["sample_index", "true_value", "predicted_value", "MAE", "RMSE"])
-
-true_values = []
-pred_values = []
+    writer.writerow(["sample_index", "true_value",
+                     "teacher_pred", "student_pred", "final_pred",
+                     "MAE"])
+true_vals = []
+teacher_preds_all = []
+student_preds_all = []
+final_preds_all = []
 mae_list = []
-rmse_list = []
 
-print("\nRUNNING RANDOM FOREST LOO \n")
+print("\nRunning Teacher → Student Meta-Learning (LOO)...\n")
 
 for i in range(n_samples):
     X_train = np.delete(X, i, axis=0)
     y_train = np.delete(y, i, axis=0)
     X_test = X[i].reshape(1, -1)
     y_test = y[i]
-    best_rf.fit(X_train, y_train)
-    y_pred = best_rf.predict(X_test)[0]
 
-    mae = abs(y_test - y_pred)
-    rmse = np.sqrt((y_test - y_pred)**2)
-    true_values.append(y_test)
-    pred_values.append(y_pred)
+    teacher_model.fit(X_train, y_train)
+    kf = KFold(n_splits=4, shuffle=True, random_state=42)
+    oof_teacher = np.zeros(len(X_train))
+
+    for train_idx, val_idx in kf.split(X_train):
+        t = RandomForestRegressor(**best_params, random_state=42)
+        t.fit(X_train[train_idx], y_train[train_idx])
+        oof_teacher[val_idx] = t.predict(X_train[val_idx])
+
+    # Residuals for the student
+    residuals = y_train - oof_teacher
+
+    # Train STUDENT on "teacher_pred → residual"
+    student = LinearRegression()
+    student.fit(oof_teacher.reshape(-1, 1), residuals)
+
+    # Teacher prediction on test
+    teacher_pred = teacher_model.predict(X_test)[0]
+
+    # Student correction
+    student_pred = student.predict(np.array([[teacher_pred]]))[0]
+    final_pred = teacher_pred + student_pred
+
+    # Evaluate
+    mae = abs(final_pred - y_test)
+    teacher_preds_all.append(teacher_pred)
+    student_preds_all.append(student_pred)
+    final_preds_all.append(final_pred)
+    true_vals.append(y_test)
     mae_list.append(mae)
-    rmse_list.append(rmse)
 
     with open(output_file, mode="a", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([i + 1, y_test, y_pred, mae, rmse])
+        writer.writerow([i+1, y_test, teacher_pred, student_pred,
+                         final_pred, mae])
 
-mean_mae = np.mean(mae_list)
-mean_rmse = np.mean(rmse_list)
+print("\nFINAL META-LEARNING LOO PERFORMANCE")
+print("Mean MAE :", round(np.mean(mae_list), 3))
 
-print("\nFINAL LOO PERFORMANCE ")
-print("Mean MAE :", round(mean_mae, 2))
-print("Mean RMSE:", round(mean_rmse, 2))
-
-# Scatter
 plt.figure(figsize=(7, 6))
-plt.scatter(true_values, pred_values, alpha=0.7)
-plt.plot([min(true_values), max(true_values)],
-         [min(true_values), max(true_values)],
-         'r--', label="Ideal")
+plt.scatter(true_vals, final_preds_all, alpha=0.7)
+plt.plot([min(true_vals), max(true_vals)],
+         [min(true_vals), max(true_vals)], 'r--')
 plt.xlabel("True Glucose")
 plt.ylabel("Predicted Glucose")
-plt.title("Scatter Plot: True vs Predicted (LOO RF)")
-plt.legend()
+plt.title("Teacher → Student Meta-Learning (LOO)")
 plt.grid(True)
-plt.savefig("scatter_true_vs_pred.png", dpi=300)
-plt.show()
+plt.savefig("scatter.png", dpi=300)
+plt.close()
 
-# Histogram
 plt.figure(figsize=(7, 6))
 plt.hist(mae_list, bins=15, edgecolor='black')
-plt.xlabel("Absolute Error (MAE)")
+plt.title("MAE Distribution (Teacher → Student)")
+plt.xlabel("MAE")
 plt.ylabel("Count")
-plt.title("Error Distribution Histogram")
 plt.grid(True)
 plt.savefig("mae_distribution.png", dpi=300)
-plt.show()
+plt.close()
 
-# Error per sample
 plt.figure(figsize=(10, 5))
 plt.plot(mae_list, marker='o')
+plt.title("MAE per Sample (Teacher → Student)")
 plt.xlabel("Sample Index")
-plt.ylabel("Absolute Error (MAE)")
-plt.title("Error Across Samples")
+plt.ylabel("MAE")
 plt.grid(True)
 plt.savefig("error_per_sample.png", dpi=300)
-plt.show()
+plt.close()
 
 print("\nSaved graphs:")
-print("- scatter_true_vs_pred.png")
+print("- scatter.png")
 print("- mae_distribution.png")
 print("- error_per_sample.png")
