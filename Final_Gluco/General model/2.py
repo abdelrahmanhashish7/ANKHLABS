@@ -2,69 +2,64 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 
 DATA_PATH = "ALLNEW.csv"
-OUTPUT_DIR = "offline_model_distilled"
+OUTPUT_DIR = "offline_model_hybrid"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 df = pd.read_csv(DATA_PATH)
 df.columns = df.columns.str.strip()
-
 features = ["ratio", "ac", "dc", "PI_feature", "slope"]
 target = "glucose"
 
-missing = set(features + [target]) - set(df.columns)
-if missing:
-    raise ValueError(f"Missing required columns: {missing}")
+X = df[features].values
+y = df[target].values
 
-X = df[features]
-y = df[target]
-
-rf = RandomForestRegressor(
+teacher = RandomForestRegressor(
     n_estimators=300,
-    max_depth=10,
-    min_samples_split=6,
-    min_samples_leaf=4,
+    max_depth=12,
+    min_samples_split=4,
+    min_samples_leaf=2,
     max_features="sqrt",
-    bootstrap=True,
     random_state=42
 )
-print("\nTraining Random Forest:")
-rf.fit(X, y)
 
-y_rf_pred = rf.predict(X)
-mae_rf = mean_absolute_error(y, y_rf_pred)
-r2_rf = r2_score(y, y_rf_pred)
-print(f"Random Forest MAE: {mae_rf:.2f}")
-print(f"Random Forest R² : {r2_rf:.4f}")
+print("\nTraining TEACHER (Random Forest)...")
+teacher.fit(X, y)
+teacher_pred = teacher.predict(X)
+mae_teacher = mean_absolute_error(y, teacher_pred)
+r2_teacher = r2_score(y, teacher_pred)
 
-y_teacher = rf.predict(X) #output random forest
+print(f"Teacher RF MAE vs True: {mae_teacher:.3f}")
+print(f"Teacher RF R² vs True : {r2_teacher:.4f}")
 
-lr = LinearRegression()
-lr.fit(X, y_teacher)
+residuals = y - teacher_pred  # target for the student
 
-y_lr_pred = lr.predict(X)
-mae_lr = mean_absolute_error(y_teacher, y_lr_pred)
-r2_lr = r2_score(y_teacher, y_lr_pred)
+student = LinearRegression()
+student.fit(X, residuals)
+student_residual_pred = student.predict(X)
+final_pred = teacher_pred + student_residual_pred
 
-print("\nDISTILLED LINEAR MODEL PERFORMANCE:")
-print(f"Distilled MAE vs RF : {mae_lr:.2f}")
-print(f"Distilled R² vs RF  : {r2_lr:.4f}")
+mae_final = mean_absolute_error(y, final_pred)
+r2_final = r2_score(y, final_pred)
 
-b0 = float(lr.intercept_)
-b1, b2, b3, b4, b5 = map(float, lr.coef_)
-coeff_line = f"{b0:.6f},{b1:.6f},{b2:.6f},{b3:.6f},{b4:.6f},{b5:.6f}"
-coeff_path = os.path.join(OUTPUT_DIR, "distilled_coefficients.csv")
-with open(coeff_path, "w") as f:
+print("\nRESIDUAL HYBRID MODEL PERFORMANCE:")
+print(f"Final MAE vs True: {mae_final:.3f}")
+print(f"Final R²  vs True: {r2_final:.4f}")
+
+joblib.dump(teacher, os.path.join(OUTPUT_DIR, "teacher_RF_model.joblib"))
+joblib.dump(student, os.path.join(OUTPUT_DIR, "student_residual_LR.joblib"))
+
+b0 = float(student.intercept_)
+b = student.coef_
+coeff_line = ",".join([f"{b0:.6f}"] + [f"{coef:.6f}" for coef in b])
+with open(os.path.join(OUTPUT_DIR, "residual_student_coeff.csv"), "w") as f:
     f.write("b0,b1,b2,b3,b4,b5\n")
     f.write(coeff_line + "\n")
 
-joblib.dump(rf, os.path.join(OUTPUT_DIR, "teacher_RF_model.joblib"))
-joblib.dump(lr, os.path.join(OUTPUT_DIR, "student_LR_model.joblib"))
-
-print("\nFINAL DISTILLED MODEL SAVED ")
-print("Coefficients:")
+print("HYBRID MODEL SAVED SUCCESSFULLY")
+print("Residual Student Coefficients:")
 print(coeff_line)
-print("\nSaved to:", coeff_path)
