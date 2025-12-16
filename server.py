@@ -167,6 +167,19 @@ def receive_data():
 
     last_ecg_time = time.time()
     return jsonify({"status": "ok"})
+    # ---------- GLUCOSE ----------
+    if "glucose" in data:
+        g = float(data["glucose"])
+        if 40 <= g <= 400:
+            latest_glucose = {
+                "value": g,
+                "timestamp": data.get("timestamp", time.time())
+            }
+            glucose_history.append(latest_glucose)
+            log(f"Glucose received: {g:.1f}")
+
+    last_ecg_time = time.time()
+    return jsonify({"status": "ok"})
 
 # ======================================================
 # API ENDPOINTS
@@ -212,3 +225,4 @@ threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
