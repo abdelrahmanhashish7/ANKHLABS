@@ -4,26 +4,45 @@ import time
 import numpy as np
 import pandas as pd
 import neurokit2 as nk
+from collections import deque
 
 app = Flask(__name__)
 
 # ======================================================
+# LOGGING (TERMINAL + API)
+# ======================================================
+LOG_BUFFER_SIZE = 500
+server_logs = deque(maxlen=LOG_BUFFER_SIZE)
+
+def log(msg):
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line)
+    server_logs.append(line)
+
+# ======================================================
 # GLOBAL SHARED STATE
 # ======================================================
-ecg_buffer = []                  # raw ECG samples (numeric only)
-latest_ecg_numbers = []          # ECG numbers exposed to Flutter
-latest_rr = {"value": None}      # latest instantaneous RR
-resp_rate_history = []           # 1-minute RR averages
+ecg_buffer = []                  # NeuroKit buffer (max 4000)
+latest_ecg_numbers = []          # exposed to Flutter (same window)
+latest_rr = {"value": None}
+resp_rate_history = []
 last_ecg_time = time.time()
+
+# ======================================================
+# BUFFER CONFIG
+# ======================================================
+BATCH_SIZE = 500
+MAX_NK_BUFFER = 4000
 
 # ======================================================
 # NEUROKIT PARAMETERS
 # ======================================================
-FS = 50                          # ECG sampling rate
+FS = 50
 WINDOW_SEC = 30
 WINDOW_SAMPLES = FS * WINDOW_SEC
-HOP_SEC = 10                     # run NK every 10 seconds
-INTENSITY_THRESHOLD = 0.05
+HOP_SEC = 10
+INTENSITY_THRESHOLD = 0.01
 
 # ======================================================
 # NEUROKIT BACKGROUND WORKER
@@ -34,25 +53,27 @@ def neurokit_worker():
     rr_temp = []
     minute_start = time.time()
 
-    print("[NK] Background worker started")
+    log("[NK] Background worker started")
 
     while True:
         time.sleep(HOP_SEC)
 
-        # Need at least 30 seconds of ECG
+        log(f"[NK] ECG buffer size: {len(ecg_buffer)}")
+
         if len(ecg_buffer) < WINDOW_SAMPLES:
             continue
 
-        # 30-second sliding window
         segment = np.array(ecg_buffer[-WINDOW_SAMPLES:], dtype=float)
         segment = np.where(segment >= 0, segment, np.nan)
         segment = pd.Series(segment).interpolate().bfill().to_numpy()
 
+        if np.std(segment) < 1e-3:
+            log("[NK] ECG too flat → skipping RR")
+            continue
+
         try:
-            # ---- ECG-derived respiration ----
             edr = nk.ecg_rsp(segment, sampling_rate=FS)
 
-            # ---- Breathing intensity ----
             rsp_intensity = (
                 pd.Series(edr)
                 .rolling(int(3 * FS), center=True)
@@ -60,27 +81,37 @@ def neurokit_worker():
                 .fillna(0)
             )
 
-            # ---- Respiration rate ----
             rr = np.array(nk.rsp_rate(edr, sampling_rate=FS))
+
             valid_rr = rr[rsp_intensity >= INTENSITY_THRESHOLD]
             valid_rr = valid_rr[valid_rr > 0]
 
+            rr_val = None
             if len(valid_rr) > 0:
                 rr_val = float(np.mean(valid_rr))
+            elif len(rr) > 0:
+                fallback = np.nanmean(rr)
+                if not np.isnan(fallback):
+                    rr_val = float(fallback)
+
+            if rr_val is not None:
                 latest_rr["value"] = rr_val
                 rr_temp.append(rr_val)
-                print(f"[NK] RR (10 s hop): {rr_val:.2f}")
+                log(f"[NK] RR (10 s hop): {rr_val:.2f}")
+            else:
+                log("[NK] RR invalid → skipped")
 
         except Exception as e:
-            print("[NK] Error:", e)
-            continue
+            log(f"[NK] Error: {e}")
 
-        # ---- 1-minute average (≈4 samples) ----
+        # ---- 1-minute average ----
         if time.time() - minute_start >= 60:
-            if rr_temp:
+            if len(rr_temp) > 0:
                 avg_rr = float(np.mean(rr_temp))
                 resp_rate_history.append(avg_rr)
-                print(f"[NK] 1-min RR: {avg_rr:.2f}")
+                log(f"[NK] 1-min RR: {avg_rr:.2f}")
+            else:
+                log("[NK] No valid RR this minute")
 
             rr_temp.clear()
             minute_start = time.time()
@@ -93,10 +124,10 @@ def ecg_auto_clear_loop():
 
     while True:
         time.sleep(30)
-        if time.time() - last_ecg_time > 300:  # 5 minutes
+        if time.time() - last_ecg_time > 300:
             ecg_buffer.clear()
             latest_ecg_numbers.clear()
-            print("[AUTO CLEAR] ECG buffers cleared (timeout)")
+            log("[AUTO CLEAR] ECG buffers cleared (timeout)")
 
 # ======================================================
 # DATA INGESTION (ESP32)
@@ -107,18 +138,23 @@ def receive_data():
 
     data = request.get_json()
     if not data:
-        return jsonify({"status": "error", "message": "bad JSON"}), 400
+        log("[ESP] Bad JSON received")
+        return jsonify({"status": "error"}), 400
 
     ecg = data.get("ecg")
-    timestamp = data.get("timestamp", time.time())
 
-    # Batch ECG
     if isinstance(ecg, list):
-        for v in ecg:
-            ecg_buffer.append(v)
-            latest_ecg_numbers.append(v)
+        ecg_buffer.extend(ecg)
+        latest_ecg_numbers.extend(ecg)
 
-    # Single ECG sample
+        # ---- SLIDING WINDOW: MAX 4000, DROP FIRST 500 ----
+        if len(ecg_buffer) > MAX_NK_BUFFER:
+            ecg_buffer[:] = ecg_buffer[BATCH_SIZE:]
+        if len(latest_ecg_numbers) > MAX_NK_BUFFER:
+            latest_ecg_numbers[:] = latest_ecg_numbers[BATCH_SIZE:]
+
+        log(f"[ESP] ECG batch received: {len(ecg)} | NK buffer: {len(ecg_buffer)}")
+
     elif isinstance(ecg, (int, float)):
         ecg_buffer.append(ecg)
         latest_ecg_numbers.append(ecg)
@@ -127,26 +163,7 @@ def receive_data():
     return jsonify({"status": "ok"})
 
 # ======================================================
-# ECG ENDPOINTS (FLUTTER)
-# ======================================================
-@app.route("/ecgnumbers", methods=["GET"])
-def get_ecg_numbers():
-    if not latest_ecg_numbers:
-        return jsonify({"numbers": []}), 404
-    return jsonify({"numbers": latest_ecg_numbers})
-
-@app.route("/ecg", methods=["GET"])
-def get_ecg_buffer():
-    return jsonify(ecg_buffer[-500:])
-
-@app.route("/ecgclear", methods=["POST"])
-def clear_ecg():
-    ecg_buffer.clear()
-    latest_ecg_numbers.clear()
-    return jsonify({"status": "ecg cleared"})
-
-# ======================================================
-# RESPIRATION ENDPOINTS
+# API ENDPOINTS
 # ======================================================
 @app.route("/resp_rate", methods=["GET"])
 def get_resp_rate():
@@ -156,28 +173,31 @@ def get_resp_rate():
 def get_resp_history():
     return jsonify({"resp_history": resp_rate_history})
 
-# ======================================================
-# CLEAR EVERYTHING
-# ======================================================
+@app.route("/ecgnumbers", methods=["GET"])
+def get_ecg_numbers():
+    return jsonify({"numbers": latest_ecg_numbers})
+
+@app.route("/logs", methods=["GET"])
+def get_logs():
+    return jsonify({"logs": list(server_logs)})
+
 @app.route("/clear_all", methods=["POST"])
 def clear_all():
     ecg_buffer.clear()
     latest_ecg_numbers.clear()
     resp_rate_history.clear()
     latest_rr["value"] = None
-    return jsonify({"status": "all cleared"})
+    log("[API] All buffers cleared")
+    return jsonify({"status": "cleared"})
 
-# ======================================================
-# TEST
-# ======================================================
 @app.route("/test")
 def test():
     return "Server running"
 
 # ======================================================
-# START SERVER (AZURE VPS SAFE)
+# START SERVER
 # ======================================================
 if __name__ == "__main__":
     threading.Thread(target=neurokit_worker, daemon=True).start()
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host="0.0.0.0", port=8000, debug=True)
