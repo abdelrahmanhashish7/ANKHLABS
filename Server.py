@@ -194,7 +194,7 @@ def clear_all():
 
 @app.route("/test")
 def test():
-    return "Server running"
+    return "Sserver running"
 
 # ======================================================
 # START SERVER (SINGLE PROCESS — IMPORTANT)
@@ -210,3 +210,4 @@ if __name__ == "__main__":
         use_reloader=False,
         threaded=False
     )
+
