@@ -25,8 +25,8 @@ def log(msg):
 # ======================================================
 ecg_buffer = []                  # sliding ECG buffer (max 4000)
 latest_ecg_numbers = []          # exposed to Flutter
-latest_rr_1min = {"value": None} # latest 1-minute avg RR
-resp_rate_history = []           # history of 1-min RR
+latest_rr_1min = {"value": None} # latest 1-minute average RR
+resp_rate_history = []           # history of 1-minute RR
 last_ecg_time = time.time()
 
 # ======================================================
@@ -48,8 +48,6 @@ INTENSITY_THRESHOLD = 0.01
 # NEUROKIT BACKGROUND WORKER
 # ======================================================
 def neurokit_worker():
-    global latest_rr_1min, resp_rate_history
-
     rr_temp = []
     minute_start = time.time()
 
@@ -147,7 +145,7 @@ def receive_data():
         ecg_buffer.extend(ecg)
         latest_ecg_numbers.extend(ecg)
 
-        # ---- SLIDING WINDOW: MAX 4000, DROP FIRST 500 ----
+        # ---- SLIDING WINDOW (MAX 4000, DROP 500) ----
         if len(ecg_buffer) > MAX_NK_BUFFER:
             ecg_buffer[:] = ecg_buffer[BATCH_SIZE:]
         if len(latest_ecg_numbers) > MAX_NK_BUFFER:
@@ -203,9 +201,11 @@ def test():
     return "Server running"
 
 # ======================================================
-# START SERVER
+# START SERVER (IMPORTANT PART)
 # ======================================================
 if __name__ == "__main__":
     threading.Thread(target=neurokit_worker, daemon=True).start()
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
-    app.run(host="0.0.0.0", port=8000, debug=True)
+
+    # 🔴 DO NOT enable debug or reloader
+    app.run(host="0.0.0.0", port=8000, debug=False, use_reloader=False)
