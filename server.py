@@ -39,6 +39,8 @@ latest_ecg_numbers = deque(maxlen=MAX_ECG_BUFFER)
 
 latest_rr_1min = None
 resp_rate_history = []
+latest_glucose = None
+glucose_history = []
 
 last_ecg_time = time.time()
 
@@ -225,4 +227,5 @@ threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
