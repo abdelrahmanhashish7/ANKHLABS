@@ -93,8 +93,8 @@ def neurokit_worker():
                 rr_window.append(rr_val)
                 log(f"[NK] RR (10 s hop): {rr_val:.2f}")
             else:
-                log("[NK] RR invalid → skipped")
-
+                   rr_window.append(0.0)
+                   log("[NK] RR invalid → counted as 0")
         except Exception as e:
             log(f"[NK] Error: {e}")
             continue
@@ -195,3 +195,4 @@ threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
