@@ -17,15 +17,15 @@ server_logs = deque(maxlen=LOG_BUFFER_SIZE)
 def log(msg):
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
-    print(line)
+    print(line, flush=True)
     server_logs.append(line)
 
 # ======================================================
-# GLOBAL SHARED STATE
+# GLOBAL SHARED STATE (SINGLE PROCESS)
 # ======================================================
-ecg_buffer = []                  # sliding ECG buffer (max 4000)
+ecg_buffer = []                  # sliding ECG buffer
 latest_ecg_numbers = []          # exposed to Flutter
-latest_rr_1min = {"value": None} # latest 1-minute average RR
+latest_rr_1min = None            # latest 1-minute RR
 resp_rate_history = []           # history of 1-minute RR
 last_ecg_time = time.time()
 
@@ -33,7 +33,7 @@ last_ecg_time = time.time()
 # BUFFER CONFIG
 # ======================================================
 BATCH_SIZE = 500
-MAX_NK_BUFFER = 4000
+MAX_ECG_BUFFER = 4000
 
 # ======================================================
 # NEUROKIT PARAMETERS
@@ -48,6 +48,8 @@ INTENSITY_THRESHOLD = 0.01
 # NEUROKIT BACKGROUND WORKER
 # ======================================================
 def neurokit_worker():
+    global latest_rr_1min
+
     rr_temp = []
     minute_start = time.time()
 
@@ -56,9 +58,10 @@ def neurokit_worker():
     while True:
         time.sleep(HOP_SEC)
 
-        log(f"[NK] ECG buffer size: {len(ecg_buffer)}")
+        buf_len = len(ecg_buffer)
+        log(f"[NK] ECG buffer size: {buf_len}")
 
-        if len(ecg_buffer) < WINDOW_SAMPLES:
+        if buf_len < WINDOW_SAMPLES:
             continue
 
         segment = np.array(ecg_buffer[-WINDOW_SAMPLES:], dtype=float)
@@ -100,14 +103,14 @@ def neurokit_worker():
 
         except Exception as e:
             log(f"[NK] Error: {e}")
+            continue
 
-        # ---- 1-minute average RR ----
+        # ===== 1-MINUTE AVERAGE RR =====
         if time.time() - minute_start >= 60:
-            if len(rr_temp) > 0:
-                avg_rr = float(np.mean(rr_temp))
-                latest_rr_1min["value"] = avg_rr
-                resp_rate_history.append(avg_rr)
-                log(f"[NK] 1-min RR: {avg_rr:.2f}")
+            if rr_temp:
+                latest_rr_1min = float(np.mean(rr_temp))
+                resp_rate_history.append(latest_rr_1min)
+                log(f"[NK] 1-min RR: {latest_rr_1min:.2f}")
             else:
                 log("[NK] No valid RR this minute")
 
@@ -118,7 +121,7 @@ def neurokit_worker():
 # AUTO-CLEAR ECG IF ESP STOPS
 # ======================================================
 def ecg_auto_clear_loop():
-    global ecg_buffer, latest_ecg_numbers, last_ecg_time
+    global ecg_buffer, latest_ecg_numbers
 
     while True:
         time.sleep(30)
@@ -134,7 +137,7 @@ def ecg_auto_clear_loop():
 def receive_data():
     global last_ecg_time
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data:
         log("[ESP] Bad JSON received")
         return jsonify({"status": "error"}), 400
@@ -145,10 +148,10 @@ def receive_data():
         ecg_buffer.extend(ecg)
         latest_ecg_numbers.extend(ecg)
 
-        # ---- SLIDING WINDOW (MAX 4000, DROP 500) ----
-        if len(ecg_buffer) > MAX_NK_BUFFER:
+        # ---- SLIDING WINDOW (DROP FIRST 500 IF > 4000) ----
+        if len(ecg_buffer) > MAX_ECG_BUFFER:
             ecg_buffer[:] = ecg_buffer[BATCH_SIZE:]
-        if len(latest_ecg_numbers) > MAX_NK_BUFFER:
+        if len(latest_ecg_numbers) > MAX_ECG_BUFFER:
             latest_ecg_numbers[:] = latest_ecg_numbers[BATCH_SIZE:]
 
         log(f"[ESP] ECG batch received: {len(ecg)} | NK buffer: {len(ecg_buffer)}")
@@ -165,34 +168,27 @@ def receive_data():
 # ======================================================
 @app.route("/resp_rate", methods=["GET"])
 def get_resp_rate():
-    return jsonify({
-        "resp_rate": latest_rr_1min["value"]
-    })
+    return jsonify({"resp_rate": latest_rr_1min})
 
 @app.route("/resp_history", methods=["GET"])
 def get_resp_history():
-    return jsonify({
-        "resp_history": resp_rate_history
-    })
+    return jsonify({"resp_history": resp_rate_history})
 
 @app.route("/ecgnumbers", methods=["GET"])
 def get_ecg_numbers():
-    return jsonify({
-        "numbers": latest_ecg_numbers
-    })
+    return jsonify({"numbers": latest_ecg_numbers})
 
 @app.route("/logs", methods=["GET"])
 def get_logs():
-    return jsonify({
-        "logs": list(server_logs)
-    })
+    return jsonify({"logs": list(server_logs)})
 
 @app.route("/clear_all", methods=["POST"])
 def clear_all():
+    global latest_rr_1min
     ecg_buffer.clear()
     latest_ecg_numbers.clear()
     resp_rate_history.clear()
-    latest_rr_1min["value"] = None
+    latest_rr_1min = None
     log("[API] All buffers cleared")
     return jsonify({"status": "cleared"})
 
@@ -201,11 +197,16 @@ def test():
     return "Server running"
 
 # ======================================================
-# START SERVER (IMPORTANT PART)
+# START SERVER (SINGLE PROCESS — IMPORTANT)
 # ======================================================
 if __name__ == "__main__":
     threading.Thread(target=neurokit_worker, daemon=True).start()
     threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
 
-    # 🔴 DO NOT enable debug or reloader
-    app.run(host="0.0.0.0", port=8000, debug=False, use_reloader=False)
+    app.run(
+        host="0.0.0.0",
+        port=8000,
+        debug=False,
+        use_reloader=False,
+        threaded=False
+    )
