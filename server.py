@@ -21,7 +21,7 @@ def log(msg):
     server_logs.append(line)
 
 # ======================================================
-# ECG & RR STATE (SINGLE PROCESS)
+# PARAMETERS
 # ======================================================
 FS = 50
 BATCH_SIZE = 500
@@ -31,6 +31,9 @@ WINDOW_SAMPLES = FS * WINDOW_SEC
 HOP_SEC = 10
 INTENSITY_THRESHOLD = 0.01
 
+# ======================================================
+# GLOBAL STATE (SINGLE PROCESS)
+# ======================================================
 ecg_buffer = deque(maxlen=MAX_ECG_BUFFER)
 latest_ecg_numbers = deque(maxlen=MAX_ECG_BUFFER)
 
@@ -45,7 +48,7 @@ last_ecg_time = time.time()
 def neurokit_worker():
     global latest_rr_1min
 
-    rr_window = []
+    rr_window = []          # holds 10-sec RR values (or 0)
     minute_start = time.time()
 
     log("[NK] Background worker started")
@@ -59,15 +62,19 @@ def neurokit_worker():
         if buf_len < WINDOW_SAMPLES:
             continue
 
+        # ---- 30-second ECG window ----
         segment = np.array(list(ecg_buffer)[-WINDOW_SAMPLES:], dtype=float)
         segment = np.where(segment >= 0, segment, np.nan)
         segment = pd.Series(segment).interpolate().bfill().to_numpy()
 
+        # ---- Flat signal guard ----
         if np.std(segment) < 1e-3:
-            log("[NK] ECG too flat → skipping")
+            rr_window.append(0.0)
+            log("[NK] ECG too flat → RR counted as 0")
             continue
 
         try:
+            # ---- ECG-derived respiration ----
             edr = nk.ecg_rsp(segment, sampling_rate=FS)
 
             rsp_intensity = (
@@ -78,10 +85,12 @@ def neurokit_worker():
             )
 
             rr = np.array(nk.rsp_rate(edr, sampling_rate=FS))
+
             valid_rr = rr[rsp_intensity >= INTENSITY_THRESHOLD]
             valid_rr = valid_rr[valid_rr > 0]
 
             rr_val = None
+
             if len(valid_rr) > 0:
                 rr_val = float(np.mean(valid_rr))
             elif len(rr) > 0:
@@ -89,25 +98,33 @@ def neurokit_worker():
                 if not np.isnan(fallback):
                     rr_val = float(fallback)
 
+            # ---- IMPORTANT CHANGE ----
             if rr_val is not None:
                 rr_window.append(rr_val)
                 log(f"[NK] RR (10 s hop): {rr_val:.2f}")
             else:
-                   rr_window.append(0.0)
-                   log("[NK] RR invalid → counted as 0")
-        except Exception as e:
-            log(f"[NK] Error: {e}")
-            continue
+                rr_window.append(0.0)
+                log("[NK] RR invalid → counted as 0")
 
-        # ---- 1-minute average ----
+        except Exception as e:
+            rr_window.append(0.0)
+            log(f"[NK] Error → RR counted as 0 | {e}")
+
+        # ---- 1-MINUTE AVERAGE ----
         if time.time() - minute_start >= 60:
             if len(rr_window) > 0:
                 avg_rr = float(np.mean(rr_window))
+
+                # ---- CLAMP LOW RR ----
+                if avg_rr <= 5:
+                    avg_rr = 0.0
+                    log("[NK] 1-min RR ≤ 5 → set to 0")
+
                 latest_rr_1min = avg_rr
                 resp_rate_history.append(avg_rr)
                 log(f"[NK] 1-min RR: {avg_rr:.2f}")
             else:
-                log("[NK] No valid RR this minute")
+                log("[NK] No RR samples this minute")
 
             rr_window.clear()
             minute_start = time.time()
@@ -185,7 +202,7 @@ def health():
     return "Server running"
 
 # ======================================================
-# START BACKGROUND THREADS (IMPORTANT)
+# START BACKGROUND THREADS
 # ======================================================
 threading.Thread(target=neurokit_worker, daemon=True).start()
 threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
@@ -195,4 +212,3 @@ threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
-
