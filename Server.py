@@ -23,10 +23,10 @@ def log(msg):
 # ======================================================
 # GLOBAL SHARED STATE
 # ======================================================
-ecg_buffer = []                  # NeuroKit buffer (max 4000)
-latest_ecg_numbers = []          # exposed to Flutter (same window)
-latest_rr = {"value": None}
-resp_rate_history = []
+ecg_buffer = []                  # sliding ECG buffer (max 4000)
+latest_ecg_numbers = []          # exposed to Flutter
+latest_rr_1min = {"value": None} # latest 1-minute avg RR
+resp_rate_history = []           # history of 1-min RR
 last_ecg_time = time.time()
 
 # ======================================================
@@ -48,7 +48,7 @@ INTENSITY_THRESHOLD = 0.01
 # NEUROKIT BACKGROUND WORKER
 # ======================================================
 def neurokit_worker():
-    global latest_rr, resp_rate_history
+    global latest_rr_1min, resp_rate_history
 
     rr_temp = []
     minute_start = time.time()
@@ -95,7 +95,6 @@ def neurokit_worker():
                     rr_val = float(fallback)
 
             if rr_val is not None:
-                latest_rr["value"] = rr_val
                 rr_temp.append(rr_val)
                 log(f"[NK] RR (10 s hop): {rr_val:.2f}")
             else:
@@ -104,10 +103,11 @@ def neurokit_worker():
         except Exception as e:
             log(f"[NK] Error: {e}")
 
-        # ---- 1-minute average ----
+        # ---- 1-minute average RR ----
         if time.time() - minute_start >= 60:
             if len(rr_temp) > 0:
                 avg_rr = float(np.mean(rr_temp))
+                latest_rr_1min["value"] = avg_rr
                 resp_rate_history.append(avg_rr)
                 log(f"[NK] 1-min RR: {avg_rr:.2f}")
             else:
@@ -167,26 +167,34 @@ def receive_data():
 # ======================================================
 @app.route("/resp_rate", methods=["GET"])
 def get_resp_rate():
-    return jsonify({"resp_rate": latest_rr["value"]})
+    return jsonify({
+        "resp_rate": latest_rr_1min["value"]
+    })
 
 @app.route("/resp_history", methods=["GET"])
 def get_resp_history():
-    return jsonify({"resp_history": resp_rate_history})
+    return jsonify({
+        "resp_history": resp_rate_history
+    })
 
 @app.route("/ecgnumbers", methods=["GET"])
 def get_ecg_numbers():
-    return jsonify({"numbers": latest_ecg_numbers})
+    return jsonify({
+        "numbers": latest_ecg_numbers
+    })
 
 @app.route("/logs", methods=["GET"])
 def get_logs():
-    return jsonify({"logs": list(server_logs)})
+    return jsonify({
+        "logs": list(server_logs)
+    })
 
 @app.route("/clear_all", methods=["POST"])
 def clear_all():
     ecg_buffer.clear()
     latest_ecg_numbers.clear()
     resp_rate_history.clear()
-    latest_rr["value"] = None
+    latest_rr_1min["value"] = None
     log("[API] All buffers cleared")
     return jsonify({"status": "cleared"})
 
