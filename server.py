@@ -200,7 +200,7 @@ def get_resp_history():
     
 @app.route("/glucose")
 def glucose():
-    return jsonify({"value": latest_glucose})
+    return jsonify({"glucose": latest_glucose})
 
 @app.route("/glucose_history")
 def glucose_hist():
@@ -238,6 +238,7 @@ threading.Thread(target=neurokit_worker, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
 
 
