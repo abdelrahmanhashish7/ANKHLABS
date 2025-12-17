@@ -193,6 +193,14 @@ def get_resp_rate():
 @app.route("/resp_history")
 def get_resp_history():
     return jsonify({"resp_history": resp_rate_history})
+    
+@app.route("/glucose")
+def glucose():
+    return jsonify({"glucose": latest_glucose})
+
+@app.route("/glucose_history")
+def glucose_hist():
+    return jsonify({"history": glucose_history})
 
 @app.route("/ecgnumbers")
 def get_ecg_numbers():
@@ -220,12 +228,12 @@ def health():
 # START BACKGROUND THREADS
 # ======================================================
 threading.Thread(target=neurokit_worker, daemon=True).start()
-threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
 
 # ======================================================
 # LOCAL DEV ONLY
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
 
