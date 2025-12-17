@@ -177,7 +177,7 @@ def receive_data():
 
         if 40 <= glucose <= 400:
             latest_glucose = {
-                glucose,
+                "glucose": glucose
             }
             glucose_history.append(latest_glucose)
             log(f"Glucose received: {glucose:.1f}")
@@ -199,7 +199,7 @@ def get_resp_history():
     
 @app.route("/glucose")
 def glucose():
-    return jsonify({"glucose": latest_glucose})
+    return jsonify({latest_glucose})
 
 @app.route("/glucose_history")
 def glucose_hist():
@@ -237,6 +237,7 @@ threading.Thread(target=neurokit_worker, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
 
 
