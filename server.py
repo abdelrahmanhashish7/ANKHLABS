@@ -171,16 +171,16 @@ def receive_data():
         last_ecg_time = time.time()
 
     # ---------- GLUCOSE ----------
-   if "glucose" in data:
-    g = data["glucose"]
+    if "glucose" in data:
+     g = data["glucose"]
 
-    if isinstance(g, dict) and "value" in g:
-        glucose = float(g["value"])
+     if isinstance(g, dict) and "value" in g:
+         glucose = float(g["value"])
 
-        if 40 <= glucose <= 400:
-            latest_glucose = {"value": glucose}
-            glucose_history.append(latest_glucose)
-            log(f"Glucose received: {glucose:.1f}")
+         if 40 <= glucose <= 400:
+             latest_glucose = {"value": glucose}
+             glucose_history.append(latest_glucose)
+             log(f"Glucose received: {glucose:.1f}")
         else:
             log(f"Glucose ignored: {glucose}")
 
@@ -237,6 +237,7 @@ threading.Thread(target=neurokit_worker, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
 
 
