@@ -149,38 +149,42 @@ def ecg_auto_clear_loop():
 # ======================================================
 @app.route("/data", methods=["POST"])
 def receive_data():
-    global last_ecg_time
+    global last_ecg_time, latest_glucose
 
     data = request.get_json(silent=True)
-    if not data or "ecg" not in data:
-        log("[ESP] Invalid JSON")
+    if not data:
         return jsonify({"status": "error"}), 400
 
-    ecg = data["ecg"]
+    # ---------- ECG ----------
+    if "ecg" in data:
+        ecg = data["ecg"]
 
-    if isinstance(ecg, list):
-        for v in ecg:
-            ecg_buffer.append(v)
-            latest_ecg_numbers.append(v)
-        log(f"[ESP] ECG batch received: {len(ecg)} | NK buffer: {len(ecg_buffer)}")
-    else:
-        ecg_buffer.append(ecg)
-        latest_ecg_numbers.append(ecg)
+        if isinstance(ecg, list):
+            for v in ecg:
+                ecg_buffer.append(v)
+                latest_ecg_numbers.append(v)
+            log(f"ECG batch received: {len(ecg)} | buffer={len(ecg_buffer)}")
+        else:
+            ecg_buffer.append(ecg)
+            latest_ecg_numbers.append(ecg)
 
-    last_ecg_time = time.time()
-    return jsonify({"status": "ok"})
+        last_ecg_time = time.time()
+
     # ---------- GLUCOSE ----------
     if "glucose" in data:
-        g = float(data["glucose"])
-        if 40 <= g <= 400:
+        glucose = float(data["glucose"])
+        ts = data.get("timestamp", time.time())
+
+        if 40 <= glucose <= 400:
             latest_glucose = {
-                "value": g,
-                "timestamp": data.get("timestamp", time.time())
+                "value": glucose,
+                "timestamp": ts
             }
             glucose_history.append(latest_glucose)
-            log(f"Glucose received: {g:.1f}")
+            log(f"Glucose received: {glucose:.1f}")
+        else:
+            log(f"Glucose ignored: {glucose}")
 
-    last_ecg_time = time.time()
     return jsonify({"status": "ok"})
 
 # ======================================================
@@ -234,6 +238,7 @@ threading.Thread(target=neurokit_worker, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
 
 
