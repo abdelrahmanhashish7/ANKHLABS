@@ -172,18 +172,19 @@ def receive_data():
 
     # ---------- GLUCOSE ----------
     if "glucose" in data:
-        glucose = float(data["glucose"])
-        ts = data.get("timestamp", time.time())
+      try:
+          glucose = float(data["glucose"])
+          ts = data.get("timestamp")
 
-        if 40 <= glucose <= 400:
-            latest_glucose = {
-                "value": glucose,
-                "timestamp": ts
-            }
-            glucose_history.append(latest_glucose)
-            log(f"Glucose received: {glucose:.1f}")
-        else:
-            log(f"Glucose ignored: {glucose}")
+          if 40 <= glucose <= 400:
+              latest_glucose = {
+                  "glucose": glucose,
+                  "timestamp": ts
+              }
+              glucose_history.append(latest_glucose)
+              log(f"Glucose received: {glucose:.1f}")
+      except Exception as e:
+          log(f"Bad glucose data: {e}")
 
     return jsonify({"status": "ok"})
 
@@ -199,8 +200,8 @@ def get_resp_history():
     return jsonify({"resp_history": resp_rate_history})
     
 @app.route("/glucose")
-def glucose():
-    return jsonify({"glucose": latest_glucose})
+def get_glucose():
+    return jsonify(latest_glucose)
 
 @app.route("/glucose_history")
 def glucose_hist():
@@ -238,6 +239,7 @@ threading.Thread(target=neurokit_worker, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
 
 
