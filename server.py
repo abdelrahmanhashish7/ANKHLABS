@@ -233,12 +233,14 @@ def health():
 # START BACKGROUND THREADS
 # ======================================================
 threading.Thread(target=neurokit_worker, daemon=True).start()
+threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
 
 # ======================================================
 # LOCAL DEV ONLY
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
 
 
