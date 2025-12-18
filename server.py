@@ -181,7 +181,7 @@ def receive_data():
                   "glucose": glucose,
                   "timestamp": ts
               }
-              glucose_history.append(latest_glucose)
+              glucose_history.append(glucose)
               log(f"Glucose received: {glucose:.1f}")
       except Exception as e:
           log(f"Bad glucose data: {e}")
@@ -204,8 +204,8 @@ def get_glucose():
     return jsonify(latest_glucose)
 
 @app.route("/glucose_history")
-def glucose_hist():
-    return jsonify({"history": glucose_history})
+def get_glucose_history():
+    return jsonify({"glucose_history": glucose_history})
 
 @app.route("/ecgnumbers")
 def get_ecg_numbers():
@@ -240,6 +240,7 @@ threading.Thread(target=ecg_auto_clear_loop, daemon=True).start()
 # ======================================================
 if __name__ == "__main__":
     print("Run with gunicorn in production")
+
 
 
 
